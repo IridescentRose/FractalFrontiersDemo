@@ -17,13 +17,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const zaudio = b.dependency("zaudio", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    const tracy = b.dependency("tracy", .{
-        .target = target,
-        .optimize = optimize,
+    const tracy = b.createModule(.{
+        .root_source_file = b.path("src/core/tracy.zig"),
     });
 
     const exe = b.addExecutable(.{
@@ -42,29 +37,11 @@ pub fn build(b: *std.Build) void {
                 .name = "znoise",
                 .module = znoise.module("root"),
             }, .{
-                .name = "zaudio",
-                .module = zaudio.module("root"),
-            }, .{
                 .name = "tracy",
-                .module = tracy.module("tracy"),
+                .module = tracy,
             } },
         }),
     });
-
-    // Allow the user to enable or disable Tracy support with a build flag
-    const tracy_enabled = b.option(
-        bool,
-        "tracy",
-        "Build with Tracy support.",
-    ) orelse false;
-
-    if (tracy_enabled) {
-        // The user asked to enable Tracy, use the real implementation
-        exe.root_module.addImport("tracy_impl", tracy.module("tracy_impl_enabled"));
-    } else {
-        // The user asked to disable Tracy, use the dummy implementation
-        exe.root_module.addImport("tracy_impl", tracy.module("tracy_impl_disabled"));
-    }
 
     // exe.subsystem = .Windows;
     exe.root_module.addCSourceFile(.{
@@ -73,8 +50,8 @@ pub fn build(b: *std.Build) void {
         .language = .c,
     });
     exe.root_module.addIncludePath(b.path("src/stbi/"));
-    exe.linkLibC();
-    exe.linkLibrary(znoise.artifact("FastNoiseLite"));
+    exe.root_module.link_libc = true;
+    exe.root_module.linkLibrary(znoise.artifact("FastNoiseLite"));
 
     b.installArtifact(exe);
 

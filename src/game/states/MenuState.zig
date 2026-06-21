@@ -6,6 +6,7 @@ const sm = @import("../../core/statemachine.zig");
 const GameState = @import("GameState.zig");
 const IntroState = @import("IntroState.zig");
 const app = @import("../../core/app.zig");
+const util = @import("../../core/util.zig");
 
 const State = @import("../../core/State.zig");
 const Self = @This();
@@ -59,7 +60,7 @@ fn init(ctx: *anyopaque) anyerror!void {
         .ctx = &game_state,
     });
 
-    var dir = std.fs.cwd().openDir("world", .{}) catch |err| {
+    var dir = std.Io.Dir.cwd().openDir(util.io(), "world", .{}) catch |err| {
         if (err == error.FileNotFound) {
             has_save = false;
             return;
@@ -67,7 +68,7 @@ fn init(ctx: *anyopaque) anyerror!void {
             return err;
         }
     };
-    defer dir.close();
+    defer dir.close(util.io());
 
     // TODO: Check for specific files to verify it's a valid save
     has_save = true;

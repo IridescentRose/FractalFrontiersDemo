@@ -16,8 +16,8 @@ const Job = union(enum) {
 };
 
 var initialized: bool = false;
-pub var job_mutex = std.Thread.Mutex{};
-pub var job_queue: std.fifo.LinearFifo(Job, .Dynamic) = undefined;
+pub var job_mutex = util.Mutex{};
+pub var job_queue: std.ArrayList(Job) = .empty;
 
 pub var thread_list: std.ArrayList(std.Thread) = undefined;
 var running = true;
@@ -25,32 +25,33 @@ var running = true;
 pub fn init() !void {
     assert(!initialized);
 
-    job_queue = std.fifo.LinearFifo(Job, .Dynamic).init(util.allocator());
+    job_queue = .empty;
     initialized = true;
     assert(initialized);
 
-    thread_list = std.ArrayList(std.Thread).init(util.allocator());
+    thread_list = std.ArrayList(std.Thread).empty;
 
     // At least one thread
     const thread_count = @max(2, try std.Thread.getCpuCount()) - 1;
     for (0..thread_count) |_| {
-        try thread_list.append(try std.Thread.spawn(.{}, worker_thread, .{}));
+        try thread_list.append(util.allocator(), try std.Thread.spawn(.{}, worker_thread, .{}));
     }
 }
 
 fn worker_thread() void {
     while (running) {
-        if (job_queue.count == 0) {
-            std.Thread.sleep(std.time.ns_per_ms); // 1 ms
+        if (job_queue.items.len == 0) {
+            std.Io.sleep(util.io(), .{ .nanoseconds = std.time.ns_per_ms }, .awake) catch {};
             continue;
         }
 
         job_mutex.lock();
-        const job = job_queue.readItem() orelse {
+        if (job_queue.items.len == 0) {
             job_mutex.unlock();
-            std.Thread.sleep(std.time.ns_per_ms); // 1 ms
+            std.Io.sleep(util.io(), .{ .nanoseconds = std.time.ns_per_ms }, .awake) catch {};
             continue;
-        };
+        }
+        const job = job_queue.orderedRemove(0);
         job_mutex.unlock();
 
         switch (job) {
@@ -71,7 +72,7 @@ fn worker_thread() void {
                 chunk.load(gen.pos);
 
                 world.chunkMapWriteLock.lock();
-                world.chunkMap.put(gen.pos, .{
+                world.chunkMap.put(util.allocator(), gen.pos, .{
                     .offset = chunk.offset,
                     .size = chunk.size,
                     .populated = true,
@@ -112,10 +113,10 @@ pub fn deinit() void {
     {
         job_mutex.lock();
         defer job_mutex.unlock();
-        job_queue.deinit();
+        job_queue.deinit(util.allocator());
     }
 
     initialized = false;
-    thread_list.deinit();
+    thread_list.deinit(util.allocator());
     assert(!initialized);
 }

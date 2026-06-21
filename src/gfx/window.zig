@@ -44,12 +44,12 @@ pub fn set_title(title: [:0]const u8) !void {
 
 pub fn get_width() !usize {
     assert(initialized);
-    return (try window.getSize()).width;
+    return (try window.getSize())[0];
 }
 
 pub fn get_height() !usize {
     assert(initialized);
-    return (try window.getSize()).height;
+    return (try window.getSize())[1];
 }
 
 pub fn set_relative(mode: bool) !void {

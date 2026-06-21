@@ -6,6 +6,7 @@ const sm = @import("../../core/statemachine.zig");
 const GameState = @import("GameState.zig");
 const audio = @import("../../audio//audio.zig");
 const app = @import("../../core/app.zig");
+const util = @import("../../core/util.zig");
 
 const State = @import("../../core/State.zig");
 const Self = @This();
@@ -24,7 +25,7 @@ fn init(ctx: *anyopaque) anyerror!void {
     try audio.play_sfx_at_position("assets/intro/intro1.mp3", [_]f32{ 0, 0, 0 });
     app.set_quit(false);
     app.quit_cb = on_quit;
-    wait_until = std.time.milliTimestamp() + 30000; // Wait for 30 seconds
+    wait_until = util.milliTimestamp() + 30000; // Wait for 30 seconds
 }
 
 fn deinit(ctx: *anyopaque) void {
@@ -36,13 +37,13 @@ fn deinit(ctx: *anyopaque) void {
 fn update(ctx: *anyopaque) anyerror!void {
     _ = ctx;
 
-    if (clicked_continue and !continued_audio and std.time.milliTimestamp() > wait_until) {
+    if (clicked_continue and !continued_audio and util.milliTimestamp() > wait_until) {
         continued_audio = true;
         try audio.play_sfx_at_position("assets/intro/intro2.mp3", [_]f32{ 0, 0, 0 });
-        wait_until = std.time.milliTimestamp() + 25000; // Wait for another 25 seconds
+        wait_until = util.milliTimestamp() + 25000; // Wait for another 25 seconds
     }
 
-    if (clicked_continue and continued_audio and std.time.milliTimestamp() > wait_until) {
+    if (clicked_continue and continued_audio and util.milliTimestamp() > wait_until) {
         // Transition to the game state
         sm.transition(game_state.state()) catch unreachable;
     }

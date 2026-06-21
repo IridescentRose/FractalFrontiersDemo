@@ -424,7 +424,7 @@ fn place_block(self: *Self) void {
                                     if (hand.count == 0) hand.material = 0;
                                 }
 
-                                world.active_atoms.append(.{
+                                world.active_atoms.append(util.allocator(), .{
                                     .coord = test_coord,
                                     .moves = 255,
                                 }) catch break;
@@ -1075,7 +1075,7 @@ pub fn update(self: *Self, dt: f32) void {
 pub fn do_damage(self: *Self, amount: u8, direction: [3]f32) void {
     const health = self.entity.get_ptr(.health);
 
-    self.last_damage = std.time.nanoTimestamp();
+    self.last_damage = util.nanoTimestamp();
     if (health.* > 0 and self.last_damage > self.iframe_time) {
         health.* -|= amount;
         self.iframe_time = self.last_damage + 250 * std.time.ns_per_ms; // 250ms of invulnerability
@@ -1327,7 +1327,7 @@ pub fn draw(self: *Self, shadow: bool) void {
     }) catch unreachable;
 
     // DMG FLASH
-    const time_since_last_damage = @divTrunc(std.time.nanoTimestamp() - self.last_damage, std.time.ns_per_ms);
+    const time_since_last_damage = @divTrunc(util.nanoTimestamp() - self.last_damage, std.time.ns_per_ms);
 
     if (time_since_last_damage <= 127) {
         const alpha: u8 = @intCast(time_since_last_damage);

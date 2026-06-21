@@ -39,77 +39,11 @@ request: [5]Inventory.Slot = @splat(.{
 const Self = @This();
 
 pub fn save_info(self: *Self) !void {
-    var file = try std.fs.cwd().createFile("world/town.dat", .{ .truncate = true });
-    defer file.close();
-
-    const writer = file.deprecatedWriter();
-
-    // Town Center
-    try writer.writeInt(u32, @bitCast(self.town_center[0]), .little);
-    try writer.writeInt(u32, @bitCast(self.town_center[1]), .little);
-    try writer.writeInt(u32, @bitCast(self.town_center[2]), .little);
-
-    // Villagers
-    for (self.citizens) |citizen| {
-        try writer.writeInt(u32, @bitCast(citizen.id), .little);
-    }
-
-    // Buildings
-    for (self.buildings) |building| {
-        try writer.writeStruct(building);
-    }
-
-    try writer.writeInt(u32, @intFromBool(self.created), .little);
-
-    if (self.farm_loc) |fl| {
-        try writer.writeInt(u32, @bitCast(fl[0]), .little);
-        try writer.writeInt(u32, @bitCast(fl[1]), .little);
-        try writer.writeInt(u32, @bitCast(fl[2]), .little);
-    } else {
-        try writer.writeInt(u32, 0, .little);
-        try writer.writeInt(u32, 0, .little);
-        try writer.writeInt(u32, 0, .little);
-    }
-    try writer.writeInt(u32, self.building_count, .little);
-
-    try writer.writeStruct(self.inventory);
+    _ = self;
 }
 
 pub fn load_info(self: *Self) !void {
-    var file = try std.fs.cwd().openFile("world/town.dat", .{});
-    defer file.close();
-
-    const reader = file.deprecatedReader();
-
-    // Town Center
-    self.town_center[0] = @bitCast(try reader.readInt(u32, .little));
-    self.town_center[1] = @bitCast(try reader.readInt(u32, .little));
-    self.town_center[2] = @bitCast(try reader.readInt(u32, .little));
-
-    // Villagers
-    for (&self.citizens) |*citizen| {
-        citizen.id = try reader.readInt(u32, .little);
-    }
-
-    // Buildings
-    for (&self.buildings) |*building| {
-        building.* = try reader.readStruct(Building);
-    }
-
-    self.created = try reader.readInt(u32, .little) == 1;
-
-    var loc: [3]f32 = undefined;
-    loc[0] = @bitCast(try reader.readInt(u32, .little));
-    loc[1] = @bitCast(try reader.readInt(u32, .little));
-    loc[2] = @bitCast(try reader.readInt(u32, .little));
-
-    if (loc[0] != 0 and loc[1] != 0 and loc[2] != 0) {
-        self.farm_loc = loc;
-    }
-
-    self.building_count = try reader.readInt(u32, .little);
-
-    self.inventory = try reader.readStruct(Inventory);
+    _ = self;
 }
 
 pub fn init() !Self {

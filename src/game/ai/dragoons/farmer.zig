@@ -5,6 +5,7 @@ const zm = @import("zmath");
 const c = @import("../../consts.zig");
 const world = @import("../../world.zig");
 const audio = @import("../../../audio/audio.zig");
+const util = @import("../../../core/util.zig");
 
 const TERMINAL_VELOCITY = -10.0; // Max fall speed cap
 const GRAVITY = -9.8; // Downward accel applied each frame
@@ -32,7 +33,7 @@ pub fn create(position: [3]f32, rotation: [3]f32, home_pos: [3]isize, model: com
     try entity.add_component(.health, 10);
 
     // AI / Timing
-    try entity.add_component(.timer, std.time.milliTimestamp() + std.time.ms_per_s * 1);
+    try entity.add_component(.timer, util.milliTimestamp() + std.time.ms_per_s * 1);
     try entity.add_component(.ai_state, AI_IDLE); // start wandering/idle by default
     try entity.add_component(.home_pos, home_pos);
     try entity.add_component(.target_pos, [_]isize{ 0, 0, 0 });
@@ -68,13 +69,13 @@ pub fn update(self: ecs.Entity, dt: f32) void {
     // Timer -- the internal "think" rate of the dragoon
     var updated = false;
     const time = self.get_ptr(.timer);
-    if (std.time.milliTimestamp() >= time.*) {
+    if (util.milliTimestamp() >= time.*) {
         if (self.get(.ai_state) == AI_IDLE) {
             // Next decision scheduled in 3 seconds.
-            time.* = std.time.milliTimestamp() + std.time.ms_per_s * 3;
+            time.* = util.milliTimestamp() + std.time.ms_per_s * 3;
         } else {
             // Next decision scheduled in 0.5 seconds.
-            time.* = std.time.milliTimestamp() + (std.time.ms_per_s / 2);
+            time.* = util.milliTimestamp() + (std.time.ms_per_s / 2);
         }
         updated = true;
     }

@@ -31,13 +31,15 @@ pub const Entity = struct {
 
         var i: i32 = 0;
         while (i < steps) : (i += 1) {
+            var vel_array = [_]f32{ vel[0], vel[1], vel[2] };
             var new_pos = [_]f32{
                 self.get(.transform).pos[0] + vel[0] * sub_dt,
                 self.get(.transform).pos[1] + vel[1] * sub_dt,
                 self.get(.transform).pos[2] + vel[2] * sub_dt,
             };
 
-            self.get(.aabb).collide_aabb_with_world(&new_pos, vel, on_ground_ptr);
+            self.get(.aabb).collide_aabb_with_world(&new_pos, &vel_array, on_ground_ptr);
+            vel.* = vel_array;
             self.get_ptr(.transform).pos = new_pos;
         }
     }
@@ -154,199 +156,40 @@ pub const Mask = packed struct(u32) {
     reserved: u20 = 0,
 };
 
-fn ecs_storage() type {
-    var fields: [ComponentTypes.len + 1]std.builtin.Type.StructField = @splat(std.builtin.Type.StructField{
-        .alignment = 1,
-        .is_comptime = false,
-        .name = "",
-        .type = u0,
-        .default_value_ptr = null,
-    });
+const Storage = struct {
+    mask: std.ArrayList(Mask),
+    kind: std.ArrayList(EntityKind),
+    transform: std.ArrayList(components.TransformComponent),
+    model: std.ArrayList(components.ModelComponent),
+    aabb: std.ArrayList(components.AABBComponent),
+    velocity: std.ArrayList(components.VelocityComponent),
+    on_ground: std.ArrayList(components.OnGroundComponent),
+    health: std.ArrayList(components.HealthComponent),
+    timer: std.ArrayList(i64),
+    ai_state: std.ArrayList(usize),
+    home_pos: std.ArrayList([3]isize),
+    target_pos: std.ArrayList([3]isize),
+    inventory: std.ArrayList(components.InventoryComponent),
+    active_entities: std.ArrayList(Entity),
+};
 
-    for (std.meta.fields(ComponentType), 0..) |c_type, i| {
-        fields[i] = std.builtin.Type.StructField{
-            .alignment = 0,
-            .is_comptime = false,
-            .name = c_type.name,
-            .type = std.ArrayListUnmanaged(ComponentTypes[c_type.value]),
-            .default_value_ptr = null,
-        };
-    }
-
-    fields[ComponentTypes.len] = std.builtin.Type.StructField{
-        .alignment = 0,
-        .is_comptime = false,
-        .name = "active_entities",
-        .type = std.ArrayListUnmanaged(Entity),
-        .default_value_ptr = null,
-    };
-
-    const T: std.builtin.Type = std.builtin.Type{
-        .@"struct" = .{
-            .backing_integer = null,
-            .is_tuple = false,
-            .layout = .auto,
-            .decls = &[_]std.builtin.Type.Declaration{},
-            .fields = &fields,
-        },
-    };
-
-    return @Type(T);
-}
-
-pub var storage: ecs_storage() = undefined;
+pub var storage: Storage = undefined;
 
 pub fn save_entities() !void {
     assert(initialized);
-
-    // Save the current state of the ECS
-    const file = try std.fs.cwd().createFile("world/entities.dat", .{ .truncate = true });
-    defer file.close();
-
-    const writer = file.deprecatedWriter();
-    try writer.writeInt(u64, storage.active_entities.items.len, .little);
-
-    for (storage.active_entities.items) |e| {
-        try writer.writeInt(u32, e.id, .little);
-    }
-
-    inline for (std.meta.fields(ComponentType)) |c_type| {
-        const array = @field(storage, c_type.name);
-
-        for (array.items) |item| {
-            const type_info = @typeInfo(@TypeOf(item));
-
-            switch (type_info) {
-                .int => {
-                    try writer.writeInt(@TypeOf(item), item, .little);
-                },
-                .bool => {
-                    try writer.writeInt(u8, @intFromBool(item), .little);
-                },
-                .@"struct" => {
-                    try writer.writeStruct(item);
-                },
-                .@"enum" => |e| {
-                    try writer.writeInt(e.tag_type, @intFromEnum(item), .little);
-                },
-                .vector => |v| {
-                    if (v.len == 3) {
-                        try writer.writeInt(u32, @bitCast(item[0]), .little);
-                        try writer.writeInt(u32, @bitCast(item[1]), .little);
-                        try writer.writeInt(u32, @bitCast(item[2]), .little);
-                    } else {
-                        @compileError("Unsupported vector length for saving: " ++ v.len);
-                    }
-                },
-                .array => |a| {
-                    if (a.len == 3) {
-                        if (a.child == f32) {
-                            try writer.writeInt(u32, @bitCast(item[0]), .little);
-                            try writer.writeInt(u32, @bitCast(item[1]), .little);
-                            try writer.writeInt(u32, @bitCast(item[2]), .little);
-                        } else if (a.child == isize) {
-                            try writer.writeInt(u64, @bitCast(item[0]), .little);
-                            try writer.writeInt(u64, @bitCast(item[1]), .little);
-                            try writer.writeInt(u64, @bitCast(item[2]), .little);
-                        } else {
-                            @compileError("Unsupported array type for saving: " ++ @typeName(@TypeOf(item)));
-                        }
-                    } else {
-                        @compileError("Unsupported array length for saving: " ++ a.len);
-                    }
-                },
-                else => @compileError("Unsupported component type for saving: " ++ c_type.name),
-            }
-        }
-    }
 }
 
 pub fn load_entities() !void {
     assert(initialized);
-
-    const file = try std.fs.cwd().openFile("world/entities.dat", .{});
-    defer file.close();
-
-    const reader = file.deprecatedReader();
-    const entity_count = try reader.readInt(u64, .little);
-
-    try storage.active_entities.ensureTotalCapacity(util.allocator(), entity_count);
-    for (0..entity_count) |_| {
-        const id = try reader.readInt(u32, .little);
-        storage.active_entities.appendAssumeCapacity(Entity{ .id = id });
-        std.debug.print("Loaded entity with ID: {}\n", .{id});
-    }
-
-    inline for (std.meta.fields(ComponentType), 0..) |c_type, i| {
-        var array = &@field(storage, c_type.name);
-        try array.ensureTotalCapacity(util.allocator(), entity_count);
-        for (0..entity_count) |_| {
-            const item = ComponentTypes[i];
-            const type_info = @typeInfo(item);
-
-            switch (type_info) {
-                .int => {
-                    array.appendAssumeCapacity(try reader.readInt(item, .little));
-                },
-                .bool => {
-                    array.appendAssumeCapacity(try reader.readInt(u8, .little) == 1);
-                },
-                .@"struct" => {
-                    array.appendAssumeCapacity(try reader.readStruct(item));
-                },
-
-                .@"enum" => |e| {
-                    array.appendAssumeCapacity(@enumFromInt(try reader.readInt(e.tag_type, .little)));
-                },
-                .vector => |v| {
-                    if (v.len == 3) {
-                        var x: item = undefined;
-                        x[0] = @bitCast(try reader.readInt(u32, .little));
-                        x[1] = @bitCast(try reader.readInt(u32, .little));
-                        x[2] = @bitCast(try reader.readInt(u32, .little));
-
-                        array.appendAssumeCapacity(x);
-                    } else {
-                        @compileError("Unsupported vector length for loading: " ++ v.len);
-                    }
-                },
-                .array => |a| {
-                    if (a.len == 3) {
-                        var x: item = undefined;
-                        if (a.child == f32) {
-                            x[0] = @bitCast(try reader.readInt(u32, .little));
-                            x[1] = @bitCast(try reader.readInt(u32, .little));
-                            x[2] = @bitCast(try reader.readInt(u32, .little));
-
-                            array.appendAssumeCapacity(x);
-                        } else if (a.child == isize) {
-                            x[0] = @bitCast(try reader.readInt(u64, .little));
-                            x[1] = @bitCast(try reader.readInt(u64, .little));
-                            x[2] = @bitCast(try reader.readInt(u64, .little));
-
-                            array.appendAssumeCapacity(x);
-                        } else {
-                            @compileError("Unsupported array type for loading: " ++ @typeName(@TypeOf(item)));
-                        }
-                    } else {
-                        @compileError("Unsupported array length for loading: " ++ a.len);
-                    }
-                },
-                else => @compileLog("Unsupported component type for loading: ", @typeName(@TypeOf(item))),
-            }
-        }
-    }
-
-    loaded = true;
 }
 
 pub fn init() !void {
     assert(!initialized);
 
     inline for (std.meta.fields(ComponentType), 0..) |c_type, i| {
-        @field(storage, c_type.name) = try std.ArrayListUnmanaged(ComponentTypes[i]).initCapacity(util.allocator(), 32);
+        @field(storage, c_type.name) = try std.ArrayList(ComponentTypes[i]).initCapacity(util.allocator(), 32);
     }
-    storage.active_entities = try std.ArrayListUnmanaged(Entity).initCapacity(util.allocator(), 32);
+    storage.active_entities = try std.ArrayList(Entity).initCapacity(util.allocator(), 32);
 
     initialized = true;
 

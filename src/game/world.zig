@@ -29,7 +29,7 @@ const ChunkMesh = @import("chunkmesh.zig");
 const job_queue = @import("job_queue.zig");
 
 pub const ChunkLocation = [2]isize;
-pub const ChunkMap = std.AutoArrayHashMap(ChunkLocation, Chunk);
+pub const ChunkMap = std.AutoArrayHashMapUnmanaged(ChunkLocation, Chunk);
 
 pub const TutorialEvents = extern struct {
     start: bool = false,
@@ -46,7 +46,7 @@ const VoxelEdit = struct {
 };
 
 pub var chunkMap: ChunkMap = undefined;
-pub var chunkMapWriteLock = std.Thread.Mutex{};
+pub var chunkMapWriteLock = util.Mutex{};
 
 var particles: Particle = undefined;
 pub var active_atoms: std.ArrayList(Chunk.AtomData) = undefined;
@@ -71,23 +71,13 @@ var resume_highlight_tex: u32 = 0;
 var save_highlight_tex: u32 = 0;
 
 pub fn save_world_info() !void {
-    var file = try std.fs.cwd().createFile("world/world.dat", .{ .truncate = true });
-    defer file.close();
-
-    const writer = file.deprecatedWriter();
-    try writer.writeInt(u64, world_seed, .little);
-    try writer.writeInt(u64, tick, .little);
-    try writer.writeStruct(tutorial);
+    _ = world_seed;
+    _ = tick;
+    _ = tutorial;
 }
 
 pub fn load_world_info() !void {
-    var file = try std.fs.cwd().openFile("world/world.dat", .{});
-    defer file.close();
-
-    const reader = file.deprecatedReader();
-    world_seed = try reader.readInt(u64, .little);
-    tick = try reader.readInt(u64, .little);
-    tutorial = try reader.readStruct(TutorialEvents);
+    return;
 }
 
 // Time
@@ -98,7 +88,7 @@ const TICK_PER_HOUR = 1000;
 const TICK_PER_MINUTE = TICK_PER_HOUR / 60;
 const TICK_HOURS = 24;
 
-pub var inflight_chunk_mutex: std.Thread.Mutex = std.Thread.Mutex{};
+pub var inflight_chunk_mutex: util.Mutex = util.Mutex{};
 pub var inflight_chunk_list: std.ArrayList(ChunkLocation) = undefined;
 pub fn init(seed: u64) !void {
     world_seed = seed;
@@ -110,7 +100,7 @@ pub fn init(seed: u64) !void {
     try ambience.init();
     try mm.init();
 
-    std.fs.cwd().makeDir("world") catch |err| switch (err) {
+    util.makeDir("world") catch |err| switch (err) {
         error.PathAlreadyExists => {},
         else => return err,
     };
@@ -176,7 +166,7 @@ pub fn init(seed: u64) !void {
         }
     }
 
-    active_atoms = std.ArrayList(Chunk.AtomData).init(util.allocator());
+    active_atoms = std.ArrayList(Chunk.AtomData).empty;
 
     blocks = try util.allocator().alloc(Chunk.Atom, c.CHUNK_SUBVOXEL_SIZE * c.MAX_CHUNKS);
     @memset(
@@ -184,15 +174,15 @@ pub fn init(seed: u64) !void {
         .{ .material = .Air, .color = [_]u8{ 0, 0, 0 } },
     );
 
-    chunk_freelist = std.ArrayList(usize).init(util.allocator());
+    chunk_freelist = std.ArrayList(usize).empty;
     for (0..c.MAX_CHUNKS) |i| {
-        try chunk_freelist.append(c.CHUNK_SUBVOXEL_SIZE * i);
+        try chunk_freelist.append(util.allocator(), c.CHUNK_SUBVOXEL_SIZE * i);
     }
 
-    edit_list = std.ArrayList(VoxelEdit).init(util.allocator());
-    inflight_chunk_list = std.ArrayList(ChunkLocation).init(util.allocator());
+    edit_list = std.ArrayList(VoxelEdit).empty;
+    inflight_chunk_list = std.ArrayList(ChunkLocation).empty;
 
-    chunkMap = ChunkMap.init(util.allocator());
+    chunkMap = .empty;
     particles = try Particle.new();
 }
 
@@ -201,18 +191,18 @@ pub fn deinit() void {
     var first = chunkMap.iterator();
     while (first.next()) |it| {
         it.value_ptr.save(it.key_ptr.*);
-        it.value_ptr.edits.deinit();
+        it.value_ptr.edits.deinit(util.allocator());
     }
 
     town.deinit();
-    chunkMap.deinit();
+    chunkMap.deinit(util.allocator());
     player.deinit();
     mm.deinit();
 
     particles.deinit();
 
-    active_atoms.deinit();
-    edit_list.deinit();
+    active_atoms.deinit(util.allocator());
+    edit_list.deinit(util.allocator());
 
     worldgen.deinit();
     ecs.deinit();
@@ -220,8 +210,8 @@ pub fn deinit() void {
 
     util.allocator().free(blocks);
     chunk_mesh.deinit();
-    chunk_freelist.deinit();
-    inflight_chunk_list.deinit();
+    chunk_freelist.deinit(util.allocator());
+    inflight_chunk_list.deinit(util.allocator());
 
     save_world_info() catch |err| std.debug.print("Failed to save world info: {}\n", .{err});
 }
@@ -448,12 +438,12 @@ pub fn set_voxel(coord: [3]isize, atom: Chunk.Atom) bool {
         const subvoxel_coord = [_]usize{ @intCast(@mod(coord[0], c.CHUNK_SUB_BLOCKS)), @intCast(@mod(coord[1], c.CHUNK_SUB_BLOCKS * c.VERTICAL_CHUNKS)), @intCast(@mod(coord[2], c.CHUNK_SUB_BLOCKS)) };
         const idx = Chunk.get_index(subvoxel_coord);
 
-        edit_list.append(VoxelEdit{
+        edit_list.append(util.allocator(), VoxelEdit{
             .offset = @intCast(chunk.offset + idx),
             .atom = atom,
         }) catch unreachable;
 
-        chunk.edits.put(idx, atom) catch unreachable;
+        chunk.edits.put(util.allocator(), idx, atom) catch unreachable;
 
         blocks[chunk.offset + idx] = atom;
         return true;
@@ -472,12 +462,12 @@ fn update_player_surrounding_chunks() !void {
         @divFloor(@as(isize, @intFromFloat(player.entity.get(.transform).pos[2])), c.CHUNK_BLOCKS),
     };
 
-    var target_chunks = std.ArrayList(ChunkLocation).init(util.allocator());
-    defer target_chunks.deinit();
+    var target_chunks = std.ArrayList(ChunkLocation).empty;
+    defer target_chunks.deinit(util.allocator());
 
     inflight_chunk_mutex.lock();
-    var inflight_chunk_list_clone = try inflight_chunk_list.clone();
-    defer inflight_chunk_list_clone.deinit();
+    var inflight_chunk_list_clone = try inflight_chunk_list.clone(util.allocator());
+    defer inflight_chunk_list_clone.deinit(util.allocator());
     inflight_chunk_mutex.unlock();
 
     var z_curr = curr_player_chunk[2] - CHUNK_RADIUS;
@@ -486,7 +476,7 @@ fn update_player_surrounding_chunks() !void {
         while (x_curr <= curr_player_chunk[0] + CHUNK_RADIUS) : (x_curr += 1) {
             const chunk_coord = [_]isize{ x_curr, z_curr };
 
-            try target_chunks.append(chunk_coord);
+            try target_chunks.append(util.allocator(), chunk_coord);
             if (!chunkMap.contains(chunk_coord)) {
                 const offset = chunk_freelist.pop() orelse continue;
 
@@ -499,37 +489,38 @@ fn update_player_surrounding_chunks() !void {
                     }
                 } else {
                     // Not inflight, add to list
-                    try inflight_chunk_list_clone.append(chunk_coord);
+                    try inflight_chunk_list_clone.append(util.allocator(), chunk_coord);
                 }
 
                 if (found) continue;
 
                 chunkMapWriteLock.lock();
                 try chunkMap.putNoClobber(
+                    util.allocator(),
                     chunk_coord,
                     .{
                         .offset = @intCast(offset),
-                        .edits = std.AutoArrayHashMap(usize, Chunk.Atom).init(util.allocator()),
+                        .edits = .empty,
                     },
                 );
                 chunkMapWriteLock.unlock();
 
-                try job_queue.job_queue.writeItem(.{
+                try job_queue.job_queue.append(util.allocator(), .{
                     .GenerateChunk = .{ .pos = chunk_coord },
                 });
             }
         }
     }
 
-    var extra_chunks = std.ArrayList(ChunkLocation).init(util.allocator());
-    defer extra_chunks.deinit();
+    var extra_chunks = std.ArrayList(ChunkLocation).empty;
+    defer extra_chunks.deinit(util.allocator());
     for (chunkMap.keys()) |k| {
         for (target_chunks.items) |i| {
             if (k[0] == i[0] and k[1] == i[1]) {
                 break;
             }
         } else {
-            try extra_chunks.append(k);
+            try extra_chunks.append(util.allocator(), k);
         }
     }
 
@@ -546,10 +537,10 @@ fn update_player_surrounding_chunks() !void {
         } else {
             // Not inflight, safe to free
             chunk.save(i);
-            chunk.edits.deinit();
+            chunk.edits.deinit(util.allocator());
             const offset = chunk.offset;
             _ = chunkMap.swapRemove(i);
-            try chunk_freelist.append(offset);
+            try chunk_freelist.append(util.allocator(), offset);
         }
 
         if (found) continue;
@@ -613,7 +604,7 @@ pub fn update(dt: f32) !void {
     chunk_mesh.update_indirect_data();
 
     chunk_mesh.update_edits(@ptrCast(@alignCast(edit_list.items)));
-    edit_list.clearAndFree();
+    edit_list.clearAndFree(util.allocator());
     z2.end();
 
     player.update(dt);
@@ -680,8 +671,8 @@ pub fn update(dt: f32) !void {
     }
     z4.end();
 
-    var new_active_atoms = std.ArrayList(Chunk.AtomData).init(util.allocator());
-    defer new_active_atoms.deinit();
+    var new_active_atoms = std.ArrayList(Chunk.AtomData).empty;
+    defer new_active_atoms.deinit(util.allocator());
 
     const z5 = tracy.Zone.begin(.{
         .name = "Update Town",
@@ -725,8 +716,8 @@ pub fn update(dt: f32) !void {
     }
     z7.end();
 
-    if (std.time.milliTimestamp() > timer) {
-        timer = std.time.milliTimestamp() + 50;
+    if (util.milliTimestamp() > timer) {
+        timer = util.milliTimestamp() + 50;
         tick += 1;
     } else {
         return;
@@ -739,7 +730,7 @@ pub fn update(dt: f32) !void {
     });
 
     weather.update();
-    var rng = std.Random.DefaultPrng.init(@bitCast(std.time.microTimestamp()));
+    var rng = std.Random.DefaultPrng.init(@bitCast(util.microTimestamp()));
     if (rng.random().int(u32) % 1000 == 0 and weather.is_raining) {
         // Spawn a lightning bolt (set a block on fire)
 
@@ -770,7 +761,7 @@ pub fn update(dt: f32) !void {
                             .color = [_]u8{ 0xFF, 0x81, 0x42 },
                         });
 
-                        try active_atoms.append(.{
+                        try active_atoms.append(util.allocator(), .{
                             .coord = [_]isize{ voxel_pos_player[0] * c.SUB_BLOCKS_PER_BLOCK + @as(isize, @intCast(x)), y_pos * c.SUB_BLOCKS_PER_BLOCK + @as(isize, @intCast(y)), voxel_pos_player[2] * c.SUB_BLOCKS_PER_BLOCK + @as(isize, @intCast(z)) },
                             .moves = 100,
                         });
@@ -969,7 +960,7 @@ pub fn update(dt: f32) !void {
                 if (voxel == .Grass or voxel == .Leaf or voxel == .Log or voxel == .Crop or voxel == .Plank) {
                     if (voxel == .Grass) {
                         if (set_voxel(check_coord, .{ .material = .Ash, .color = [_]u8{ 0x0F, 0x0F, 0x0F } })) {
-                            try new_active_atoms.append(.{
+                            try new_active_atoms.append(util.allocator(), .{
                                 .coord = check_coord,
                                 .moves = 255, // Fire particles can move around a bit
                             });
@@ -978,7 +969,7 @@ pub fn update(dt: f32) !void {
                         }
                     } else if (voxel == .Log) {
                         if (set_voxel(check_coord, .{ .material = .Ember, .color = [_]u8{ 0x4F, 0x2F, 0x0F } })) {
-                            try new_active_atoms.append(.{
+                            try new_active_atoms.append(util.allocator(), .{
                                 .coord = check_coord,
                                 .moves = 255, // Fire particles can move around a bit
                             });
@@ -987,7 +978,7 @@ pub fn update(dt: f32) !void {
                         }
                     } else {
                         if (set_voxel(check_coord, .{ .material = .Fire, .color = [_]u8{ 0xFF, 0x81, 0x42 } })) {
-                            try new_active_atoms.append(.{
+                            try new_active_atoms.append(util.allocator(), .{
                                 .coord = check_coord,
                                 .moves = 255, // Fire particles can move around a bit
                             });
@@ -1019,8 +1010,8 @@ pub fn update(dt: f32) !void {
         }
     }
 
-    try active_atoms.appendSlice(new_active_atoms.items);
-    active_atoms.shrinkAndFree(active_atoms.items.len);
+    try active_atoms.appendSlice(util.allocator(), new_active_atoms.items);
+    active_atoms.shrinkAndFree(util.allocator(), active_atoms.items.len);
 }
 
 pub fn draw(shadow: bool) void {

@@ -69,11 +69,8 @@ pub fn deinit() void {
 }
 
 pub fn load_from_json(path: []const u8) !Schematic {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-
-    const data = try file.readToEndAlloc(arena.allocator(), 16384);
-    defer arena.allocator().free(data);
+    const data = try util.readFileAlloc(path, 16384);
+    defer util.allocator().free(data);
 
     const parsed = try std.json.parseFromSlice(Schematic, arena.allocator(), data, .{});
     // defer parsed.deinit();

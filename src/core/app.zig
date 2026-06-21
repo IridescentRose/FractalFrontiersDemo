@@ -32,20 +32,19 @@ var config = Config{
 pub var doIntro = false;
 
 fn parse_config() !void {
-    var file = try std.fs.cwd().openFile("config.txt", .{});
-    defer file.close();
-
-    const buf = try file.readToEndAlloc(util.allocator(), 1024);
+    const buf = try util.readFileAlloc("config.txt", 1024);
     defer util.allocator().free(buf);
 
-    var lines = std.mem.splitSequence(u8, buf, "\r\n");
-    var curr_line = lines.first();
+    var lines = std.mem.splitScalar(u8, buf, '\n');
 
-    while (true) {
-        var parts = std.mem.splitScalar(u8, curr_line, '=');
+    while (lines.next()) |line| {
+        const trimmed_line = std.mem.trim(u8, line, " \t\r");
+        if (trimmed_line.len == 0) continue;
+
+        var parts = std.mem.splitScalar(u8, trimmed_line, '=');
         const key = std.mem.trim(u8, parts.first(), " \t");
         if (parts.next()) |value| {
-            const intval = try std.fmt.parseInt(u32, value, 10);
+            const intval = try std.fmt.parseInt(u32, std.mem.trim(u8, value, " \t\r"), 10);
             if (std.mem.eql(u8, key, "vsync")) {
                 config.vsync = intval != 0;
             } else if (std.mem.eql(u8, key, "fps")) {
@@ -58,13 +57,6 @@ fn parse_config() !void {
                 doIntro = intval != 0;
             }
         }
-
-        // Move to the next line
-        if (lines.next()) |next_line| {
-            curr_line = next_line;
-        } else {
-            break; // No more lines to process
-        }
     }
 }
 
@@ -74,8 +66,8 @@ pub fn set_quit(enabled: bool) void {
     can_quit = enabled;
 }
 
-pub fn init(state: State) !void {
-    util.init();
+pub fn init(io: std.Io, state: State) !void {
+    util.init(io);
 
     parse_config() catch |err| {
         std.debug.print("Failed to parse config: {}\n", .{err});
@@ -157,36 +149,36 @@ pub fn event_loop() !void {
     const frame_rate = config.fps;
     const frame_time_ns = std.time.ns_per_s / frame_rate;
 
-    var next_frame_start = std.time.nanoTimestamp() + frame_time_ns;
+    var next_frame_start = util.nanoTimestamp() + frame_time_ns;
 
     var fps: usize = 0;
-    var second_timer = std.time.nanoTimestamp() + std.time.ns_per_s;
+    var second_timer = util.nanoTimestamp() + std.time.ns_per_s;
 
     while (running) {
         tracy.frameMarkStart("event_loop");
         defer tracy.frameMarkEnd("event_loop");
 
-        const now = std.time.nanoTimestamp();
+        const now = util.nanoTimestamp();
 
         audio.update();
         handle_updates();
 
-        if (std.time.nanoTimestamp() > second_timer) {
+        if (util.nanoTimestamp() > second_timer) {
             std.debug.print("FPS: {}\n", .{fps});
             fps = 0;
-            second_timer = std.time.nanoTimestamp() + std.time.ns_per_s;
+            second_timer = util.nanoTimestamp() + std.time.ns_per_s;
         }
         fps += 1;
 
         if (now < next_frame_start and config.vsync) {
             // Poll for events
-            var new_time = std.time.nanoTimestamp();
+            var new_time = util.nanoTimestamp();
             while (new_time < next_frame_start) {
-                new_time = std.time.nanoTimestamp();
+                new_time = util.nanoTimestamp();
                 handle_updates();
 
                 // This doesn't guarantee a stable frame rate, but it helps prevent busy-waiting
-                std.Thread.sleep(std.time.ns_per_ms);
+                std.Io.sleep(util.io(), .{ .nanoseconds = std.time.ns_per_ms }, .awake) catch {};
             }
         }
 
@@ -210,7 +202,7 @@ pub fn event_loop() !void {
         next_frame_start += frame_time_ns;
 
         const drift_limit_ns = frame_time_ns * 2;
-        const curr_time = std.time.nanoTimestamp();
+        const curr_time = util.nanoTimestamp();
 
         if (curr_time > next_frame_start + drift_limit_ns) {
             next_frame_start = curr_time;

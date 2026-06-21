@@ -1,6 +1,7 @@
 .zig-cache/
 zig-out/
 *.o
+zig-pkg
 
 # Saves
 world/

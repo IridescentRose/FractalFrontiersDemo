@@ -27,7 +27,7 @@ pub fn new() !Self {
     var res: Self = .{
         .mesh = try gfx.Mesh.new(),
         .transform = Transform.new(),
-        .particles = std.ArrayList(Particle).init(util.allocator()),
+        .particles = std.ArrayList(Particle).empty,
     };
 
     try res.mesh.vertices.appendSlice(util.allocator(), &c.top_face);
@@ -40,12 +40,12 @@ pub fn new() !Self {
 }
 
 pub fn add_particle(self: *Self, particle: Particle) !void {
-    try self.particles.append(particle);
+    try self.particles.append(util.allocator(), particle);
 }
 
 pub fn deinit(self: *Self) void {
     self.mesh.deinit();
-    self.particles.deinit();
+    self.particles.deinit(util.allocator());
 }
 
 var count: usize = 0;
@@ -101,7 +101,7 @@ pub fn update(self: *Self, dt: f32) !void {
                         };
 
                         if (world.set_voxel(adjusted_subvoxel_coord, .{ .material = .Water, .color = [_]u8{ 0x46, 0x67, 0xC3 } })) {
-                            try world.active_atoms.append(.{
+                            try world.active_atoms.append(util.allocator(), .{
                                 .coord = adjusted_subvoxel_coord,
                                 .moves = 255, // Water particles can move around a bit
                             });

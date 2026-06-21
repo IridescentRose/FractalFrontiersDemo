@@ -14,8 +14,8 @@ pub const InputCallback = struct {
     ctx: *anyopaque,
 };
 
-const KeyCBMap = std.AutoArrayHashMap(sdl3.Scancode, InputCallback);
-const MouseCBMap = std.AutoArrayHashMap(sdl3.mouse.Button, InputCallback);
+const KeyCBMap = std.AutoArrayHashMapUnmanaged(sdl3.Scancode, InputCallback);
+const MouseCBMap = std.AutoArrayHashMapUnmanaged(sdl3.mouse.Button, InputCallback);
 const MousePosition = @Vector(2, f32);
 
 var keyMap: KeyCBMap = undefined;
@@ -35,8 +35,8 @@ pub var scroll_pos: isize = 0;
 pub fn init() void {
     assert(!initialized);
 
-    keyMap = KeyCBMap.init(util.allocator());
-    mbMap = MouseCBMap.init(util.allocator());
+    keyMap = .empty;
+    mbMap = .empty;
 
     initialized = true;
     assert(initialized);
@@ -46,13 +46,14 @@ pub fn get_mouse_position() MousePosition {
     const win_w: f32 = @floatFromInt(window.get_width() catch 0);
     const win_h: f32 = @floatFromInt(window.get_height() catch 0);
 
-    return MousePosition{ sdl3.mouse.getState().x / win_w * ui.UI_RESOLUTION[0], (win_h - sdl3.mouse.getState().y) / win_h * ui.UI_RESOLUTION[1] };
+    const state = sdl3.mouse.getState();
+    return MousePosition{ state[1] / win_w * ui.UI_RESOLUTION[0], (win_h - state[2]) / win_h * ui.UI_RESOLUTION[1] };
 }
 
 pub fn register_key_callback(key: sdl3.Scancode, cb: InputCallback) !void {
     assert(initialized);
 
-    try keyMap.put(key, cb);
+    try keyMap.put(util.allocator(), key, cb);
 }
 
 pub fn get_key_callback(key: sdl3.Scancode) ?InputCallback {
@@ -66,7 +67,7 @@ pub fn unregister_key_callback(key: sdl3.Scancode) void {
 pub fn register_mouse_callback(mb: sdl3.mouse.Button, cb: InputCallback) !void {
     assert(initialized);
 
-    try mbMap.put(mb, cb);
+    try mbMap.put(util.allocator(), mb, cb);
 }
 
 pub fn get_mouse_callback(mb: sdl3.mouse.Button) ?InputCallback {
@@ -80,8 +81,8 @@ pub fn unregister_mouse_callback(mb: sdl3.mouse.Button) void {
 pub fn deinit() void {
     assert(initialized);
 
-    keyMap.deinit();
-    mbMap.deinit();
+    keyMap.deinit(util.allocator());
+    mbMap.deinit(util.allocator());
 
     initialized = false;
     assert(!initialized);

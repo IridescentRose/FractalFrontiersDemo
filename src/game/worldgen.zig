@@ -86,8 +86,8 @@ pub fn fillPlace(chunk: Chunk, internal_location: [3]usize, stencil: *const bloc
 pub fn fill(chunk: Chunk, location: [2]isize) ![256][2]usize {
     const blocks_per_chunk = c.CHUNK_SUB_BLOCKS;
 
-    var heightmap = std.ArrayList(f32).init(util.allocator());
-    defer heightmap.deinit();
+    var heightmap = std.ArrayList(f32).empty;
+    defer heightmap.deinit(util.allocator());
     for (0..c.CHUNK_SUB_BLOCKS) |z| {
         for (0..c.CHUNK_SUB_BLOCKS) |x| {
             const ix: isize = @intCast(x);
@@ -95,7 +95,7 @@ pub fn fill(chunk: Chunk, location: [2]isize) ![256][2]usize {
 
             const world_x = ix + location[0] * blocks_per_chunk;
             const world_z = iz + location[1] * blocks_per_chunk;
-            try heightmap.append(@floatCast(height_at(@floatFromInt(world_x), @floatFromInt(world_z))));
+            try heightmap.append(util.allocator(), @floatCast(height_at(@floatFromInt(world_x), @floatFromInt(world_z))));
         }
     }
 

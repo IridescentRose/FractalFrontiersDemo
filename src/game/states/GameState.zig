@@ -1,6 +1,7 @@
 const std = @import("std");
 const gfx = @import("../../gfx/gfx.zig");
 const world = @import("../world.zig");
+const util = @import("../../core/util.zig");
 const zm = @import("zmath");
 
 const State = @import("../../core/State.zig");
@@ -10,8 +11,8 @@ var last_time: i64 = 0;
 fn init(ctx: *anyopaque) anyerror!void {
     _ = ctx;
     gfx.set_deferred(true);
-    try world.init(@bitCast(std.time.microTimestamp()));
-    last_time = std.time.microTimestamp();
+    try world.init(@bitCast(util.microTimestamp()));
+    last_time = util.microTimestamp();
 }
 
 fn deinit(ctx: *anyopaque) void {
@@ -22,8 +23,8 @@ fn deinit(ctx: *anyopaque) void {
 
 fn update(ctx: *anyopaque) anyerror!void {
     _ = ctx;
-    const dt = std.time.microTimestamp() - last_time;
-    last_time = std.time.microTimestamp();
+    const dt = util.microTimestamp() - last_time;
+    last_time = util.microTimestamp();
     try world.update(@as(f32, @floatFromInt(dt)) / std.time.us_per_s);
 }
 
